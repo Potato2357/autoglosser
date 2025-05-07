@@ -6,6 +6,7 @@
 
 import subprocess
 import sys
+from itertools import combinations
 
 # common symbols
 gloss = {
@@ -22,48 +23,48 @@ gloss = {
     "num": ["",""],
     "cnjcoo": ["",""],
     # gender
-    "f": ["","F"],
-    "m": ["","M"],
+    "f": ["",".F"],
+    "m": ["",".M"],
     "mf": ["",""],
-    "nt": ["","N"],
+    "nt": ["",".N"],
     # number
-    "sg": ["","SG"],
-    "pl": ["","PL"],
+    "sg": ["",".SG"],
+    "pl": ["",".PL"],
     "sp": ["",""],
-    "du": ["","DU"],
+    "du": ["",".DU"],
     # person
-    "p1": ["","1"],
-    "p2": ["","2"],
-    "p3": ["","3"],
+    "p1": ["",".1"],
+    "p2": ["",".2"],
+    "p3": ["",".3"],
     # pronoun types
     "pers": ["",""],
-    "rel": ["","REL"],
-    "dem": ["","DEM"],
-    "ind": ["","NDEF"],
-    "def": ["","DEF"],
-    "itg": ["","INT"],
-    "pos": ["","POSS"],
-    "ref": ["","REFL"],
+    "rel": ["",".REL"],
+    "dem": ["",".DEM"],
+    "ind": ["",".NDEF"],
+    "def": ["",".DEF"],
+    "itg": ["",".INT"],
+    "pos": ["",".POSS"],
+    "ref": ["",".REFL"],
     # case
-    "nom": ["","NOM"],
-    "acc": ["","ACC"],
-    "dat": ["","DAT"],
-    "gen": ["","GEN"],
-    "voc": ["","VOC"],
-    "abl": ["","ABL"],
-    "erg": ["","ERG"],
-    "abs": ["","ABS"],
+    "nom": ["",".NOM"],
+    "acc": ["",".ACC"],
+    "dat": ["",".DAT"],
+    "gen": ["",".GEN"],
+    "voc": ["",".VOC"],
+    "abl": ["",".ABL"],
+    "erg": ["",".ERG"],
+    "abs": ["",".ABS"],
     # TMA
-    "pres": ["","PRS"],
-    "past": ["","PST"],
-    "fut": ["","FUT"],
-    "imp": ["","IMP"],
-    "impf": ["","NPFV"],
-    "perf": ["","PFV"],
+    "pres": ["",".PRS"],
+    "past": ["",".PST"],
+    "fut": ["",".FUT"],
+    "imp": ["",".IMP"],
+    "impf": ["",".NPFV"],
+    "perf": ["",".PFV"],
     # other stuff
-    "inf": ["","INF"],
-    "neg": ["","NEG"],
-    "ger": ["","GER"]
+    "inf": ["",".INF"],
+    "neg": ["",".NEG"],
+    "ger": ["",".GER"]
 }
 
 puncts = ["<sent>", "<cm>", "<lquot>", "<rquot>", "<lpar>", "<rpar>", "<guio>", "<apos>", "<quot>", "<percent>", "lquest", "clb", "punct"]
@@ -88,11 +89,43 @@ while i < len(sys.argv):
         morph = sys.argv[i]
     i += 1
     
-if not igtdef or not biltrans or not morph:
+if not biltrans or not morph:
     print("ERROR: options not supplied")
     print("Usage:")
     print("echo \"your sentence here\" | python3 autoglosser.py --igtdef <igt file> --biltrans <bilingual transducer binary file> --morph <directory of monolingual transducer>")
     sys.exit(1)
+
+# read igt file
+
+if igtdef:
+    f = open(igtdef)
+    for x in f:
+        line = x.split()
+        if line[0] != "lemma":
+            if line[0] == "-":
+                line[0] = ""
+            if line[1] == "-":
+                line[1] = ""
+            if line[2] == "-":
+                line[2] = ""
+            if line[3] == "-":
+                line[3] = ""
+            if line[4] == "-":
+                line[4] = ""
+            if not line[0] and not line[1]:
+                gloss.update({line[2] : [line[3], line[4]]})
+            elif not line[0] and not line[2]:
+                gloss.update({line[1] : [line[3], line[4]]})
+            elif not line[1] and not line[2]:
+                gloss.update({line[0] : [line[3], line[4]]})
+            elif not line[0]:
+                gloss.update({line[1]+"."+line[2] : [line[3], line[4]]})
+            elif not line[1]:
+                gloss.update({line[0]+"."+line[2] : [line[3], line[4]]})
+            elif not line[2]:
+                gloss.update({line[0]+"."+line[1] : [line[3], line[4]]})
+            else:
+                gloss.update({line[0]+"."+line[1]+"."+line[2] : [line[3], line[4]]})
 
 # read the sentence to be glossed
 
@@ -105,7 +138,7 @@ words = result.stdout.split("$")
 
 for i in range(len(words)):
     if words[i].rfind("/") != -1:
-        words[i] = words[i][words[i].rfind("/")+1:]
+        words[i] = words[i][words[i].rfind("/")+1:].lower()
 
 def is_punctuation(str):
     for t in puncts:
@@ -126,24 +159,52 @@ for i in range(len(words)):
 
 # process stuff
 
+def get_sublists(lst):
+    lst.reverse()
+    res = [list(combinations(lst, r)) for r in range(1, len(lst) + 1)]
+    res = [list(sublist) for g in res for sublist in g]
+    ans = []
+    for x in res:
+        sbl2str = ""
+        for k in x:
+            sbl2str = k + "." + sbl2str
+        ans.append(sbl2str[:-1])
+    ans.reverse()
+    lst.reverse()
+    return ans
+
+def remove_processed(lst,str):
+    items = str.split(".")
+    for x in items:
+        lst.remove(x)
+
 glossed = []
 for i in range(len(words_s)):
     glossed_word = ""
-    for j in range(len(words_s[i])):
-        if j == 0:
-            result = subprocess.run("echo \"" + words[i] + "\" | lt-proc " + biltrans, shell=True, capture_output=True, text=True)
-            temp = result.stdout[result.stdout.find("/")+1:]
-            if temp.find("<") != -1:
-                temp = temp[:temp.find("<")]
-                glossed_word = temp.replace(" ", "-")
-            else:
-                glossed_word = "<" + words_s[i][0] + ">"
-        else:
-            if words_s[i][j] in gloss:
-                if gloss.get(words_s[i][j])[0]:
-                    glossed_word = gloss.get(words_s[i][j])[0] + "." + glossed_word
-                if gloss.get(words_s[i][j])[1]:
-                    glossed_word = glossed_word + "." + gloss.get(words_s[i][j])[1]
+    #word
+    result = subprocess.run("echo \"" + words[i] + "\" | lt-proc " + biltrans, shell=True, capture_output=True, text=True)
+    temp = result.stdout[result.stdout.find("/")+1:]
+    if temp.find("<") != -1:
+        temp = temp[:temp.find("<")]
+        glossed_word = temp.replace(" ", "-")
+    else:
+        glossed_word = "<" + words_s[i][0] + ">"
+    #other stuff
+    stuff = words_s[i]
+    while stuff:
+        sbl = get_sublists(stuff)
+        stop = True
+        for j in sbl:
+            if j in gloss:
+                if gloss.get(j)[0]:
+                    glossed_word = gloss.get(j)[0] + glossed_word
+                if gloss.get(j)[1]:
+                    glossed_word = glossed_word + gloss.get(j)[1]
+                remove_processed(stuff,j)
+                stop = False
+                break
+        if stop:
+            break
     #fix some stuff
     glossed_word = glossed_word.replace("1.SG", "1SG")
     glossed_word = glossed_word.replace("2.SG", "2SG")
@@ -155,12 +216,13 @@ for i in range(len(words_s)):
 
 # output
 
-for i in range(len(words_s)):
-    print(words_s[i][0] + " ", end='')
+# for i in range(len(words_s)):
+#     print(words_s[i][0] + " ", end='')
 
-print()
+print(input_str)
 
 for i in range(len(words_s)):
     print(glossed[i] + " ", end='')
 
 print()
+
