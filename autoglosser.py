@@ -1,5 +1,5 @@
 # Usage:
-# echo "your sentence here" | python3 autoglosser.py --igtdef <igt file> --biltrans <bilingual transducer binary file> --morph <directory of monolingual transducer>
+# echo "your sentence here" | python3 autoglosser.py --igtdef <igt file> --inputlang <ISO code>  --glosslang <ISO code> --biltrans <bilingual transducer directory>
 #
 #
 #
@@ -27,19 +27,17 @@ gloss = {
     "m": ["",".M"],
     "mf": ["",""],
     "nt": ["",".N"],
-    # number
-    "sg": ["",".SG"],
-    "pl": ["",".PL"],
-    "sp": ["",""],
-    "du": ["",".DU"],
-    # person
-    "p1": ["",".1"],
-    "p2": ["",".2"],
-    "p3": ["",".3"],
+    # person number
+    "p1.sg": ["",".1SG"],
+    "p2.sg": ["",".2SG"],
+    "p3.sg": ["",".3SG"],
+    "p1.pl": ["",".1PL"],
+    "p2.pl": ["",".2PL"],
+    "p3.pl": ["",".3PL"],
     # pronoun types
     "pers": ["",""],
     "rel": ["",".REL"],
-    "dem": ["",".DEM"],
+    # "dem": ["",".DEM"],
     "ind": ["",".NDEF"],
     "def": ["",".DEF"],
     "itg": ["",".INT"],
@@ -67,15 +65,15 @@ gloss = {
     "ger": ["",".GER"]
 }
 
-puncts = ["<sent>", "<cm>", "<lquot>", "<rquot>", "<lpar>", "<rpar>", "<guio>", "<apos>", "<quot>", "<percent>", "lquest", "clb", "punct"]
+puncts = ["sent", "cm", "lquot", "rquot", "lpar", "rpar", "guio", "apos", "quot", "percent", "lquest", "clb", "punct"]
 
 
 # read the options
 
-lang = ""
+input_lang = ""
+gloss_lang = ""
 igtdef = ""
 biltrans = ""
-morph = ""
 i = 1
 while i < len(sys.argv):
     if sys.argv[i] == "--igtdef":
@@ -84,15 +82,18 @@ while i < len(sys.argv):
     if sys.argv[i] == "--biltrans":
         i += 1
         biltrans = sys.argv[i]
-    if sys.argv[i] == "--morph":
+    if sys.argv[i] == "--inputlang":
         i += 1
-        morph = sys.argv[i]
+        input_lang = sys.argv[i]
+    if sys.argv[i] == "--glosslang":
+        i += 1
+        gloss_lang = sys.argv[i]
     i += 1
     
-if not biltrans or not morph:
+if not biltrans or not input_lang or not gloss_lang:
     print("ERROR: options not supplied")
     print("Usage:")
-    print("echo \"your sentence here\" | python3 autoglosser.py --igtdef <igt file> --biltrans <bilingual transducer binary file> --morph <directory of monolingual transducer>")
+    print("echo \"your sentence here\" | python3 autoglosser.py --igtdef <igt file> --inputlang <ISO code>  --glosslang <ISO code> --biltrans <bilingual transducer directory>")
     sys.exit(1)
 
 # read igt file
@@ -132,13 +133,19 @@ if igtdef:
 input_str = sys.stdin.read()
 input_str = input_str.strip()
 
-result = subprocess.run("echo \"" + input_str + "\" | lt-proc " + morph, shell=True, capture_output=True, text=True)
+result = subprocess.run("echo \"" + input_str + "\" | apertium -d " + biltrans + " " + input_lang + "-" + gloss_lang + "-biltrans", shell=True, capture_output=True, text=True)
 
 words = result.stdout.split("$")
 
+tags = []
+glossed = []
+
 for i in range(len(words)):
-    if words[i].rfind("/") != -1:
-        words[i] = words[i][words[i].rfind("/")+1:].lower()
+    tags.append(words[i][words[i].find("^")+1:words[i].find("/")-1].lower())
+    tags[i] = tags[i].replace(">","")
+    glossed.append(words[i][words[i].find("/")+1:].lower())
+    glossed[i] = glossed[i][:glossed[i].find("<")]
+
 
 def is_punctuation(str):
     for t in puncts:
@@ -146,16 +153,28 @@ def is_punctuation(str):
             return True
     return False
 
-words = [x for x in words if not is_punctuation(x) and not x == '\n']
 
-words_s = []
-for i in range(len(words)):
-    words_s.append(words[i].split("<"))
-    for j in range(1,len(words_s[i])):
-        words_s[i][j] = words_s[i][j][:-1]
+i = 0
+while i < len(tags):
+    if is_punctuation(tags[i]) or not tags[i]:
+        del tags[i]
+        del glossed[i]
+        i -= 1
+    i += 1
+
+tags_s = []
+for i in range(len(tags)):
+    tags_s.append(tags[i].split("<"))
+    tags_s[i][0] = tags_s[i][0].replace(" ","-")
+    glossed[i] = glossed[i].replace(" ","-")
 
 # print(words)
-# print(words_s)
+# print(tags)
+print(tags_s)
+print(glossed)
+
+# sys.exit(0)
+
 
 # process stuff
 
@@ -178,50 +197,42 @@ def remove_processed(lst,str):
     for x in items:
         lst.remove(x)
 
-glossed = []
-for i in range(len(words_s)):
-    glossed_word = ""
-    #word
-    result = subprocess.run("echo \"" + words[i] + "\" | lt-proc " + biltrans, shell=True, capture_output=True, text=True)
-    temp = result.stdout[result.stdout.find("/")+1:]
-    if temp.find("<") != -1:
-        temp = temp[:temp.find("<")]
-        glossed_word = temp.replace(" ", "-")
-    else:
-        glossed_word = "<" + words_s[i][0] + ">"
+for i in range(len(glossed)):
     #other stuff
-    stuff = words_s[i]
+    stuff = tags_s[i]
     while stuff:
         sbl = get_sublists(stuff)
         stop = True
         for j in sbl:
             if j in gloss:
                 if gloss.get(j)[0]:
-                    glossed_word = gloss.get(j)[0] + glossed_word
+                    glossed[i] = gloss.get(j)[0] + glossed[i]
                 if gloss.get(j)[1]:
-                    glossed_word = glossed_word + gloss.get(j)[1]
+                    glossed[i] = glossed[i] + gloss.get(j)[1]
                 remove_processed(stuff,j)
                 stop = False
                 break
         if stop:
             break
     #fix some stuff
-    glossed_word = glossed_word.replace("1.SG", "1SG")
-    glossed_word = glossed_word.replace("2.SG", "2SG")
-    glossed_word = glossed_word.replace("3.SG", "3SG")
-    glossed_word = glossed_word.replace("1.PL", "1PL")
-    glossed_word = glossed_word.replace("2.PL", "2PL")
-    glossed_word = glossed_word.replace("3.PL", "3PL")
-    glossed.append(glossed_word)
+    glossed[i] = glossed[i].replace("1.SG", "1SG")
+    glossed[i] = glossed[i].replace("2.SG", "2SG")
+    glossed[i] = glossed[i].replace("3.SG", "3SG")
+    glossed[i] = glossed[i].replace("1.PL", "1PL")
+    glossed[i] = glossed[i].replace("2.PL", "2PL")
+    glossed[i] = glossed[i].replace("3.PL", "3PL")
+    glossed[i] = glossed[i].replace("][", ".")
 
 # output
 
-# for i in range(len(words_s)):
-#     print(words_s[i][0] + " ", end='')
+# for i in range(len(tags_s)):
+#     print(tags_s[i][0] + " ", end='')
+
+# print()
 
 print(input_str)
 
-for i in range(len(words_s)):
+for i in range(len(glossed)):
     print(glossed[i] + " ", end='')
 
 print()

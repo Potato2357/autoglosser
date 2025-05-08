@@ -1,0 +1,3 @@
+lemma   POS     tags    pref    suff
+-       n       pl      -       -PL
+sheep   n       pl      -       [PL]
